@@ -1,6 +1,7 @@
 package a;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.InetAddress;
@@ -8,159 +9,200 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.Set;
 
+import javax.xml.bind.annotation.XmlRootElement;
+
+@XmlRootElement(name = "TCPServer")
 public class TCPServer {
-	private Set<InetAddress> firewall;	//makes a set called whitelist that stores ip addresses
+	Set<InetAddress> firewall;	//makes a set called whitelist that stores ip addresses
 	private PrintStream log;
+	ServerSocket server;
+	private File running;
 	
+	public TCPServer(int port, PrintStream log, HashSet<InetAddress>firewall, File running) throws Exception {
 	
-	public TCPServer(int port, PrintStream log, Set<InetAddress>firewall, File running) throws Exception {
-		
-		ServerSocket server = null;
 		this.log = log;
 		this.firewall = firewall;
+		this.server = new ServerSocket(port);
+		this.running = running;
 		
-		server = createServer(port, server);
-		/*
-		 * a loopback address is used to test communication or a transport medium on a
-		 * local network card and/or for testing network applications.
-		 */
-		InetAddress localHost =  InetAddress.getLoopbackAddress();
-		/*
-		 * gets a string representation of the ip and port for documentation purposes.
-		 */
-		String serverIpPort = ipPortToString(localHost, port);
+		//same as getting the loopBackAddress
+		InetAddress localHost = InetAddress.getByName("127.0.0.1");
+		insertLogEntry("\nServer Start", ipPortToString(server.getInetAddress(), port));
 		
-		insertLogEntry("Server starting", serverIpPort);
-		firewall.add(localHost);
+		//while(running.exists())	//runs only when the file running exists
+		//{
+		//	Socket client = server.accept();
+		//	log.println((new Date()).toString() + "|" + "Connection" + "|" + client.getInetAddress());
+		//	log.println((new Date()).toString() + "|" + "Disconnected" + "|" + client.getInetAddress());
+			//Worker worker = new Worker();
+			//worker.handle(client);
+		//}
+		//this.insertLogEntry("Server Shutdown", );
 		
-		while(!server.isClosed()) {
-			Socket client = createClient(server);
+		firewall.add(localHost);	//adds the IP address of the server itself to allow for local testing
+		System.out.println(InetAddress.getLocalHost()); // global ip
+
+		while(running.exists()) {
+			//receive client
+			System.out.println("waiting");
+			Socket client = createClient();
+			System.out.println("Client found");
 			
+			//check whitelist
 			if(ipAllowed(client)) {
-				Worker clientHandler = new Worker(this, client);
-				/*
-				 * Thread class in java just makes a thread of execution where each thread has a priority
-				 * then the thread is started in the next line
-				 */
+				System.out.println("Client is on the whitelist");
+				//create a worker and worker handles client
+				Worker clientHandler = new Worker(this,client);
 				Thread workerThread = new Thread(clientHandler);
 				workerThread.start();
 			}
 			else {
-				firewallViolation(client);
+				System.out.println("Client is NOT on the whitelist");
 			}
-			
-			closeServer(server);
 		}
 		
-		
-				
-				
-		log.println((new Date()).toString() + "|" + "Server start" + "|" + server.getInetAddress());
-		System.out.println("Listening on: " + server.getLocalPort());
-		firewall = new HashSet<InetAddress>();	//assigns whitelist as a set of type hashset
-		firewall.add(server.getInetAddress());	//adds the IP address of the server itself to allow for local testing
-		
-		//this.insertLogEntry("Server Start", );
-		//this.punch(server.getInetAddress());
-		while(running.exists())	//runs only when the file running exists
-		{
-			Socket client = server.accept();
-			log.println((new Date()).toString() + "|" + "Connection" + "|" + client.getInetAddress());
-			log.println((new Date()).toString() + "|" + "Disconnected" + "|" + client.getInetAddress());
-			//Worker worker = new Worker();
-			//worker.handle(client);
-		}
-		//this.insertLogEntry("Server Shutdown", );
 		server.close();
-	}
-	private String ipPortToString(InetAddress ip,int port) {
-		String ipPort = ip.toString() + ": " + Integer.toString(port);
 		
-		return ipPort;
 	}
 	
-	public void insertLogEntry(String entry, String subEntry) {
-		log.println(getTime() +entry + " " + "(" + subEntry + ")" + "-");		//add get time
+//	public void listen() {
+//			
+//		if(ipAllowed(client)||true) { // for debugging. remove "true" when firewall implemented
+//			Worker clientHandler = new Worker(this,client);
+//			Thread workerThread = new Thread(clientHandler);
+//			workerThread.start();
+//		}
+//		else {
+//			firewallViol(client);
+//		}
+//	}
+	
+	public String myTime()
+	{
+		ZonedDateTime nowTime = ZonedDateTime.now();
+		DateTimeFormatter formattedTime = DateTimeFormatter.ofPattern("E d MMM yyyy HH:mm:ss z");
+		String finalReturn = nowTime.format(formattedTime);
+		return finalReturn;
+	}
+	public void firewallAdd( InetAddress inetAd)
+	{
+		firewall.add(inetAd);  // Adds the ip address to the firewall list
 	}
 	
-	public void addToFirewall(InetAddress address) {
-		this.firewall.add(address);
+	public void firewallRemove( InetAddress inetAd)
+	{
+		firewall.remove(inetAd);  //Removes the ip address from the firewall list
+	}
+
+	public void insertLogEntry(String mainEntry, String subEntry)
+	{
+		log.println(mainEntry + " | " + subEntry + " | " + myTime() );  // inputs entry into the log
 	}
 	
-	public void removeFromFirewall(InetAddress address) {
-		this.firewall.remove(address);
-	}
-	
-	private boolean ipAllowed(Socket client) {
-		InetAddress clientIp = client.getInetAddress();
-		boolean ipAllowed = firewall.contains(clientIp);
-		if (ipAllowed) {
-			return true;
+	public boolean ipAllowed(Socket client)
+	{
+		InetAddress myClientIp = client.getInetAddress();
+		boolean permitted = firewall.contains(myClientIp);
+		if(permitted)
+		{
+			return permitted;
 		}
 		else
 		{
 			return false;
 		}
 	}
-	
-	private ServerSocket createServer(int port, ServerSocket server) {
+	private void closeServer()
+	{
 		try {
-			server = new ServerSocket(port);	
+			server.close();
+			insertLogEntry("Server shutdown", null);
 		}
-		catch(IOException e){
+		catch(IOException e)
+		{
 			insertLogEntry(e.getMessage(), e.getStackTrace().toString());
-			System.out.println(e.getMessage());
+			System.out.println("Error" + e.getMessage());
+			System.exit(1);
+		}
+	}
+	
+	private ServerSocket serverCreate(int port, ServerSocket server)
+	{
+		try {
+			server = new ServerSocket(port);
+		}
+		catch(IOException e)
+		{
+			insertLogEntry(e.getMessage(), e.getStackTrace().toString());
+			System.out.println("Error" + e.getMessage());
 			System.exit(1);
 		}
 		return server;
 	}
 	
-	private void closeServer(ServerSocket server) {
-		try {
-			server.close();
-			insertLogEntry("Server is shutting down", null);
-		}
-		catch(IOException e) {
-			insertLogEntry(e.getMessage(), e.getStackTrace().toString());
-			System.out.println(e.getMessage());
-			System.exit(1);
-		}
-	}
-	
-	private Socket createClient(ServerSocket server) throws IOException{
+	/**
+	 * Creates a client object
+	 * @return
+	 */
+	private Socket createClient()
+	{
 		Socket client = null;
 		try {
-			client = server.accept();
+			client = this.server.accept();
 		}
-		catch(IOException e) {
+		catch(IOException e)
+		{
 			insertLogEntry(e.getMessage(), e.getStackTrace().toString());
-			System.out.println(e.getMessage());
-			//System.exit(1);
 		}
 		
 		return client;
 	}
 	
-	private void firewallViolation(Socket Client) {
-		insertLogEntry("Firewall violation", "hello");		//more to do here
-		
-		
+	
+	private void firewallViol(Socket client)
+	{
+		insertLogEntry("Firewall Violation", client.getInetAddress().toString());
+		try {
+			PrintStream clientOutput = new PrintStream(client.getOutputStream());
+			clientOutput.println("Authentication failed, exiting...");
+			client.close();
+		}
+		catch(IOException e)
+		{
+			insertLogEntry(e.getMessage(), e.getStackTrace().toString());
+		}
 	}
 	
-	public String getTime() {
-		ZonedDateTime currentTime = ZonedDateTime.now();	//gets the currentTime according to the time zone
-		DateTimeFormatter timeFormat = DateTimeFormatter.ofPattern("E d MMM yyyy HH:mm:ss z");
-		
-		String correctTime = currentTime.format(timeFormat);
-		return correctTime;
+	private String ipPortToString(InetAddress ip, int port)
+	{
+		String ipPort = ip.toString() +":"+ Integer.toString(port); 
+		return ipPort;
 	}
 	
-	public static void main(String[] args) {
-		//String user = System.getProperty("user.home");
-		System.out.println("hi");
+	public static void main(String[] args) throws Exception {
+		int listenPort = 10560;
+		
+		String userHome = System.getProperty("user.home");
+		File logFile = new File(userHome, "/eclipse-workspace/4413/src/a/log.txt");
+		
+		File runningFile = new File(userHome, "/eclipse-workspace/4413/src/a/running.txt");
+
+		HashSet<InetAddress> firewall = new HashSet<>();
+
+		PrintStream log = new PrintStream(new FileOutputStream(logFile, true));
+
+		System.out.println("Starting Server, connection port is " + listenPort);
+
+		TCPServer theServer = new TCPServer(listenPort, log, firewall, runningFile);
+		//theServer.listen();
+		//theServer.closeServer();
+
+		System.out.println("Server shutting down");
+
+		log.close();
 	}
 }
+

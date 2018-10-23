@@ -1,167 +1,265 @@
-package a;
+  package a;
 
+import projA.Util;
+import projA.Course;
+import projA.Student;
+
+import java.io.BufferedOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.StringWriter;
 import java.math.BigInteger;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.xml.bind.JAXBContext;
+import javax.xml.bind.JAXBElement;
+import javax.xml.bind.JAXBException;
+import javax.xml.bind.Marshaller;
+import javax.xml.bind.annotation.XmlRootElement;
+import javax.xml.namespace.QName;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+//@XmlRootElement(name = "TCPServer")
+@XmlRootElement(name = "Worker")
 
 public class Worker implements Runnable{
-	public Socket clientSocket;
-	public TCPServer server;
-	public String clientIp;
-	public Map<String, String> authMap;
 
-	public Worker(TCPServer server, Socket client) {
-		this.clientSocket  = client;	//saving the clients socket
-		this.server = server;			//saving the server
-		this.clientIp = clientSocket.getInetAddress().toString();
+	private Socket myclient;
+	private TCPServer myserver;
+	private String ip;
+	private Map<String, String> authorization;
+	private PrintStream clientOutput;
+	BufferedOutputStream clientOutStream;
+	private String clientInput;
+	private String format;
+	
+	
+	public Worker(TCPServer myserver, Socket myclient ) {
+		this.myserver= myserver;
+		this.myclient= myclient;
+		//make the authorization map in server
+		//so it there's one copy of this
+		authorization = new HashMap<>();
 		
+		//authorization.put("init", "init");
+		authorization.put("Tee", "Teee");
+		
+		
+	
+	}
+
+	public String getTime()
+	{
+		return myserver.myTime();
 	}
 	
-	public void handle() throws IOException {
-	 server.insertLogEntry("Client is connected", clientIp);
-	 System.out.println("Client is connected");
-	 
-	 clientIO();
-	 
-	 System.out.println("Client is disconnected");
+	private void bye() throws IOException 
+	{
+		
+			myclient.close();  //closes socket
+			
+			myserver.insertLogEntry("Disconnected", ip); // shows on log that there has been a disconnection
+	}
+	public void punch(InetAddress inetAd)
+	{
+		myserver.firewallAdd(inetAd);
 	}
 	
-	public void run() {
-		try {
-			handle();
+	
+	
+	public void plug(InetAddress inetAd)
+	{
+		myserver.firewallRemove(inetAd);
+	}
+	
+	public BigInteger prime(int digitCount)
+	{
+		final float DEC_BIN_RATIO = 3.33f;
+		int totalDigitCount = (int) (DEC_BIN_RATIO * digitCount);
+		BigInteger randomPrime = BigInteger.probablePrime(totalDigitCount, new Random());
+		//long methodReturnedPrime = randomPrime.longValue();
+		
+		return randomPrime;
+	}
+	
+	public void handle() throws IOException, JAXBException
+	{
+		ip = myclient.getInetAddress().toString(); // store the socket ip as a string
+		myserver.insertLogEntry("Connected to Client", ip);
+		System.out.println("Connected to client");
+		clientAccept();
+		System.out.println("Disconnected from Client");
+	}
+	
+	private void clientAccept () throws IOException, JAXBException
+	{
+		PrintStream clientOutput = new PrintStream(myclient.getOutputStream());
+		BufferedOutputStream clientOutStream = new BufferedOutputStream(clientOutput);
+		Scanner clientScreenInput = new Scanner(myclient.getInputStream());
+		
+		clientOutput.println("Enter your command. Type 'bye' to exit");
+		String clientInput = clientScreenInput.nextLine();
+		
+		while(parser(clientInput, clientOutput))
+		{
+			clientOutput.println("Enter another Command");
+			clientInput = clientScreenInput.nextLine();
 		}
-		catch(IOException e){
-			server.insertLogEntry(e.getMessage(), e.getStackTrace().toString());
-			System.out.println(e.getMessage() + "closing");
-		}
+		
+		clientScreenInput.close();
+		clientOutput.close();
 	}
 	
-	private long prime(int digits) {
-		/*
-		 * converts a given integer to a binary number
-		 */
-		final float DEC_TO_BIN_RATIO = 3.5f;
-		int bitsToDec = (int)(DEC_TO_BIN_RATIO * digits);
+	private boolean parser(String clientInput, PrintStream clientOutput) throws JAXBException //throws IOException
+	{
+		boolean plausibleClient = true;
 		
-		/*
-		 * converts the given binary to a prime number
-		 */
-		BigInteger bigPrime = BigInteger.probablePrime(bitsToDec, new Random());
-		long primeNum = bigPrime.longValue();
-		
-		return primeNum;
-	}
-	
-	private void parser(String clientInput, PrintStream clientOutput) {
-		boolean clientQuery = true;
-		
-		Pattern getTimePattern = Pattern.compile("(\\s*)(get)(\\s*)(time)(\\s*)");
-		Matcher getTimeMatcher = getTimePattern.matcher(clientInput);
-		
-		Pattern byePattern = Pattern.compile("(\\s*)(bye|exit)(\\s*)", Pattern.CASE_INSENSITIVE);
+		Pattern byePattern = Pattern.compile("(\\s*)(bye)(\\s*)", Pattern.CASE_INSENSITIVE);
 		Matcher byeMatcher = byePattern.matcher(clientInput);
 		
-		Pattern primePattern = Pattern.compile("(\\s*)(prime)(\\s*)(\\d+)(\\s*)", Pattern.CASE_INSENSITIVE);
-		Matcher primeMatcher = primePattern.matcher(clientInput);
+		Pattern timePattern = Pattern.compile("(\\s*)(get)(\\s*)(time)(\\s*)", Pattern.CASE_INSENSITIVE);
+		Matcher timeMatcher = timePattern.matcher(clientInput);
 		
 		Pattern authPattern = Pattern.compile("(\\s*)(auth)(\\s*)(\\S+)(\\s*)(\\S+)(\\s*)", Pattern.CASE_INSENSITIVE);
 		Matcher authMatcher = authPattern.matcher(clientInput);
 		
-		Pattern rosterPattern = Pattern.compile("(\\s*)(roster)(\\s*)(\\S+)(\\s*)", Pattern.CASE_INSENSITIVE);
+		Pattern primePattern = Pattern.compile("(\\s*)(prime)(\\s*)(\\d+)(\\s*)", Pattern.CASE_INSENSITIVE);
+		Matcher primeMatcher = primePattern.matcher(clientInput);
+		
+		Pattern rosterPattern = Pattern.compile("(\\s*)(roster)(\\s*)(\\S+)(\\s*)(\\S+)(\\s*)", Pattern.CASE_INSENSITIVE);
 		Matcher rosterMatcher = rosterPattern.matcher(clientInput);
 		
-		if(byeMatcher.matches()) {
-			clientQuery = false;
+		
+		
+		
+		
+		if(byeMatcher.matches())
+		{
+			plausibleClient = false;
 		}
 		
-		else if(getTimeMatcher.matches()) {
-			clientOutput.println(server.getTime()+ "\n");
+		else if(timeMatcher.matches())
+		{
+			String returnTime = myserver.myTime();
+			clientOutput.println(returnTime + "\n");
+			clientOutput.flush();
 		}
-		/*
-		 * saves the clients input number which is in the fourth bracket (group 4)
-		 * and changes it to a prime then returns it
-		 */
-		else if (primeMatcher.matches()) {
+		
+		else if(authMatcher.matches())
+		{
+			
+			String userNameInput = authMatcher.group(4);
+			String passwordInput = authMatcher.group(6);
+			authMethod(userNameInput, passwordInput);
+			clientOutput.println(authMethod(userNameInput, passwordInput));
+			clientOutput.flush();
+			
+		}
+		
+		else if(primeMatcher.matches())
+		{
 			int clientDigits = Integer.parseInt(primeMatcher.group(4));
-			long primeNumber = prime(clientDigits);
+			BigInteger returnedPrime = prime(clientDigits);
+			clientOutput.println(returnedPrime + "\n");
+			clientOutput.flush();
+		}
+		else if(rosterMatcher.matches())
+		{
+			String myCourse = rosterMatcher.group(4);
 			
-			clientOutput.println(primeNumber + "\n");
+			String myFormat = rosterMatcher.group(6);
+			
+			roster(myCourse, myFormat);
+			
 		}
 		
-		else if(authMatcher.matches()) {
-			String userName = authMatcher.group(4);
-			String userPass = authMatcher.group(6);
-			
-			clientOutput.println(authorization(userName, userPass));
-		}
-		
-		else if(rosterMatcher.matches()) {
-			String courseNum = rosterMatcher.group(4);
-			//String courseJson = 
-		}
+		return plausibleClient;
 		
 	}
 	
-	private String authorization(String userName, String userPass) {
-		if(authMap.containsKey(userName)) {
-			//this gets the password that is matched to the username and saves it in validPass
-			String validPass = authMap.get(userName);
-			if(validPass.matches(userPass)) {
-				return "Access granted";
+	private String authMethod(String username, String password)
+	{
+		if(authorization.containsKey(username))
+		{
+			String correctPassword = authorization.get(username);
+			if (correctPassword.equals(password))
+			{
+				
+				return "Welcome!";
 			}
+			
 		}
-		return userPass;		
+		
+		return "Incorrect Username/Password";
+			
 	}
 	
-	private String roster(String courseNum) {
-		//Course course = Uti
-		return "hello";
-	}
-	
-	private void clientIO() throws IOException{
-		PrintStream clientOutput = new PrintStream(clientSocket.getOutputStream());
-		Scanner clientScanner = new Scanner(clientSocket.getInputStream());
-		clientOutput.println("Enter a command. Print 'bye' to exit");
-		String clientInput = clientScanner.nextLine();
+	private void roster(String whatcourse, String format) throws JAXBException 
+	{
+		Course course = Util.getCourse(whatcourse);
+		//Util.
+		
+		if(format.matches("[xX][mM][lL]") )
+		{
+			JAXBContext context = JAXBContext.newInstance(Course.class);
+			
+			Marshaller m = context.createMarshaller();
+			
+			JAXBElement<Course> root = new JAXBElement<Course>(new QName("Course"), Course.class, course);
+			m.marshal(root, clientOutput);
+			clientOutput.flush();
+			//m.marshal(root, System.out);
+			
+		}
+		else if (format.matches("[jJ][sS][oO][nN]") )
+		{
+		//Gson gson = new Gson();
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		String ourOutput = gson.toJson(course);
+		System.out.println(ourOutput);
+		clientOutput.flush();
+		//clientOutput.println(ourOutput);
+		
+		}
+		
+		
+		
 		
 	}
 	
-	public String getTime() {
-		return server.getTime();
-	}
-	
-	public void bye() {
-		try {
-			clientSocket.close();
+	/**
+	 * implented because it implements runnable
+	 * this is automatically called when an instance of worker is made
+	 */
+	public void run()
+	{
+		try
+		{
+				handle();
 		}
-		catch(IOException e){
-			server.insertLogEntry(e.getMessage(), e.getStackTrace().toString());
-			System.out.println(e.getMessage() + " closing");
+		catch(IOException e)
+		{
+			myserver.insertLogEntry(e.getMessage(), e.getStackTrace().toString());
+			System.out.println(e.getMessage() + "exiting");
 			System.exit(1);
+		} catch (JAXBException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
 		}
-		
-		server.insertLogEntry("Client is disconnected", clientIp);
 	}
-	
-	public void punch(InetAddress a) {
-		server.addToFirewall(a);
-	}
-	
-	public void plug(InetAddress a) {
-		server.removeFromFirewall(a);
-		
-	}
-	
-	
-
 }
+
+
